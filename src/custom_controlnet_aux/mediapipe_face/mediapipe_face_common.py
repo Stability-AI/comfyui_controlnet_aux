@@ -70,23 +70,23 @@ for _conn in FaceLandmarksConnections.FACE_LANDMARKS_LIPS:
 iris_landmark_spec = {468: right_iris_draw, 473: left_iris_draw}
 
 
-def draw_pupils(image, landmarks, drawing_spec, halfwidth: int = 2):
-    """Custom pupil drawing — the standard draw_landmarks doesn't support per-landmark specs
-    for individual iris points."""
+def draw_pupils(image, landmark_list, drawing_spec, halfwidth: int = 2):
+    """We have a custom function to draw the pupils because the mp.draw_landmarks method requires a parameter for all
+    landmarks.  Until our PR is merged into mediapipe, we need this separate method."""
     if len(image.shape) != 3:
         raise ValueError("Input image must be H,W,C.")
     image_rows, image_cols, image_channels = image.shape
     if image_channels != 3:  # BGR channels
         raise ValueError('Input image must contain three channel bgr data.')
-    for idx, landmark in enumerate(landmarks):
+    for idx, landmark in enumerate(landmark_list):
         if landmark.visibility is not None and landmark.visibility < 0.9:
             continue
         if landmark.presence is not None and landmark.presence < 0.5:
             continue
         if landmark.x >= 1.0 or landmark.x < 0 or landmark.y >= 1.0 or landmark.y < 0:
             continue
-        image_x = int(image_cols * landmark.x)
-        image_y = int(image_rows * landmark.y)
+        image_x = int(image_cols*landmark.x)
+        image_y = int(image_rows*landmark.y)
         draw_color = None
         if isinstance(drawing_spec, Mapping):
             if drawing_spec.get(idx) is None:
@@ -126,7 +126,7 @@ def generate_annotation(
 
     with FaceLandmarker.create_from_options(options) as landmarker:
         img_height, img_width, img_channels = img_rgb.shape
-        assert img_channels == 3
+        assert(img_channels == 3)
 
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
         result = landmarker.detect(mp_image)
@@ -137,13 +137,18 @@ def generate_annotation(
 
         # Filter faces that are too small
         filtered_landmarks = []
-        for face_lms in result.face_landmarks:
-            face_rect = [face_lms[0].x, face_lms[0].y, face_lms[0].x, face_lms[0].y]
-            for lm in face_lms:
-                face_rect[0] = min(face_rect[0], lm.x)
-                face_rect[1] = min(face_rect[1], lm.y)
-                face_rect[2] = max(face_rect[2], lm.x)
-                face_rect[3] = max(face_rect[3], lm.y)
+        for lm in result.face_landmarks:
+            face_rect = [
+                lm[0].x,
+                lm[0].y,
+                lm[0].x,
+                lm[0].y,
+            ]  # Left, up, right, down.
+            for i in range(len(lm)):
+                face_rect[0] = min(face_rect[0], lm[i].x)
+                face_rect[1] = min(face_rect[1], lm[i].y)
+                face_rect[2] = max(face_rect[2], lm[i].x)
+                face_rect[3] = max(face_rect[3], lm[i].y)
             if min_face_size_pixels > 0:
                 face_width = abs(face_rect[2] - face_rect[0])
                 face_height = abs(face_rect[3] - face_rect[1])
@@ -151,23 +156,26 @@ def generate_annotation(
                 face_height_pixels = face_height * img_height
                 face_size = min(face_width_pixels, face_height_pixels)
                 if face_size >= min_face_size_pixels:
-                    filtered_landmarks.append(face_lms)
+                    filtered_landmarks.append(lm)
             else:
-                filtered_landmarks.append(face_lms)
+                filtered_landmarks.append(lm)
 
+        # Annotations are drawn in BGR for some reason, but we don't need to flip a zero-filled image at the start.
         empty = numpy.zeros_like(img_rgb)
 
-        for face_lms in filtered_landmarks:
+        # Draw detected faces:
+        for face_landmarks in filtered_landmarks:
             drawing_utils.draw_landmarks(
                 empty,
-                face_lms,
+                face_landmarks,
                 connections=_face_connections,
                 landmark_drawing_spec=None,
                 connection_drawing_spec=face_connection_spec,
                 is_drawing_landmarks=False,
             )
-            draw_pupils(empty, face_lms, iris_landmark_spec, 2)
+            draw_pupils(empty, face_landmarks, iris_landmark_spec, 2)
 
+        # Flip BGR back to RGB.
         empty = reverse_channels(empty).copy()
 
         return empty
