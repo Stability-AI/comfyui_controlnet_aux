@@ -20,6 +20,20 @@ def _face_landmarker_model_path() -> str:
     return os.path.join(annotator_ckpts_path, "mediapipe", "face_landmarker.task")
 
 
+def _ensure_face_landmarker_model() -> str:
+    """Return the absolute path to face_landmarker.task, raising if it is missing."""
+    model_path = os.path.abspath(_face_landmarker_model_path())
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"face_landmarker.task not found at {model_path}\n"
+            f"Download it from:\n"
+            f"  https://storage.googleapis.com/mediapipe-models/"
+            f"face_landmarker/face_landmarker/float16/1/face_landmarker.task\n"
+            f"and place it at:\n  {model_path}"
+        )
+    return model_path
+
+
 min_face_size_pixels: int = 64
 f_thick = 2
 f_rad = 1
@@ -99,7 +113,7 @@ def generate_annotation(
     If min_face_size_pixels is provided and nonzero it will be used to filter faces that occupy less than this many
     pixels in the image.
     """
-    model_path = os.path.abspath(_face_landmarker_model_path())
+    model_path = _ensure_face_landmarker_model()
     options = FaceLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_path),
         running_mode=RunningMode.IMAGE,
@@ -121,6 +135,7 @@ def generate_annotation(
             print("No faces detected in controlnet image for Mediapipe face annotator.")
             return numpy.zeros_like(img_rgb)
 
+        # Filter faces that are too small
         filtered_landmarks = []
         for face_lms in result.face_landmarks:
             face_rect = [face_lms[0].x, face_lms[0].y, face_lms[0].x, face_lms[0].y]
