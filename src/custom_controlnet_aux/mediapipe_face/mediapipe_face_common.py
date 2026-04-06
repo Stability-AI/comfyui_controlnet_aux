@@ -4,6 +4,7 @@ from typing import Mapping
 import mediapipe as mp
 import numpy
 
+from custom_controlnet_aux.util import annotator_ckpts_path
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import (
     FaceLandmarker,
@@ -14,10 +15,10 @@ from mediapipe.tasks.python.vision import (
 )
 from mediapipe.tasks.python.vision.drawing_utils import DrawingSpec
 
-_MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), os.pardir, os.pardir, os.pardir,
-    "ckpts", "mediapipe", "face_landmarker.task",
-)
+
+def _face_landmarker_model_path() -> str:
+    return os.path.join(annotator_ckpts_path, "mediapipe", "face_landmarker.task")
+
 
 min_face_size_pixels: int = 64
 f_thick = 2
@@ -98,7 +99,7 @@ def generate_annotation(
     If min_face_size_pixels is provided and nonzero it will be used to filter faces that occupy less than this many
     pixels in the image.
     """
-    model_path = os.path.abspath(_MODEL_PATH)
+    model_path = os.path.abspath(_face_landmarker_model_path())
     options = FaceLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_path),
         running_mode=RunningMode.IMAGE,
