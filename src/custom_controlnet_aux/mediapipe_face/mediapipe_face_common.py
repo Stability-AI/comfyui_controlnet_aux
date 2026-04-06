@@ -1,52 +1,73 @@
+import os
 from typing import Mapping
-import warnings
 
 import mediapipe as mp
 import numpy
 
-if mp:
-    mp_drawing = mp.solutions.drawing_utils
-    mp_drawing_styles = mp.solutions.drawing_styles
-    mp_face_detection = mp.solutions.face_detection  # Only for counting faces.
-    mp_face_mesh = mp.solutions.face_mesh
-    mp_face_connections = mp.solutions.face_mesh_connections.FACEMESH_TESSELATION
-    mp_hand_connections = mp.solutions.hands_connections.HAND_CONNECTIONS
-    mp_body_connections = mp.solutions.pose_connections.POSE_CONNECTIONS
+from custom_controlnet_aux.util import annotator_ckpts_path
+from mediapipe.tasks.python import BaseOptions
+from mediapipe.tasks.python.vision import (
+    FaceLandmarker,
+    FaceLandmarkerOptions,
+    FaceLandmarksConnections,
+    RunningMode,
+    drawing_utils,
+)
+from mediapipe.tasks.python.vision.drawing_utils import DrawingSpec
 
-    DrawingSpec = mp.solutions.drawing_styles.DrawingSpec
-    PoseLandmark = mp.solutions.drawing_styles.PoseLandmark
 
-    min_face_size_pixels: int = 64
-    f_thick = 2
-    f_rad = 1
-    right_iris_draw = DrawingSpec(color=(10, 200, 250), thickness=f_thick, circle_radius=f_rad)
-    right_eye_draw = DrawingSpec(color=(10, 200, 180), thickness=f_thick, circle_radius=f_rad)
-    right_eyebrow_draw = DrawingSpec(color=(10, 220, 180), thickness=f_thick, circle_radius=f_rad)
-    left_iris_draw = DrawingSpec(color=(250, 200, 10), thickness=f_thick, circle_radius=f_rad)
-    left_eye_draw = DrawingSpec(color=(180, 200, 10), thickness=f_thick, circle_radius=f_rad)
-    left_eyebrow_draw = DrawingSpec(color=(180, 220, 10), thickness=f_thick, circle_radius=f_rad)
-    mouth_draw = DrawingSpec(color=(10, 180, 10), thickness=f_thick, circle_radius=f_rad)
-    head_draw = DrawingSpec(color=(10, 200, 10), thickness=f_thick, circle_radius=f_rad)
+def _face_landmarker_model_path() -> str:
+    return os.path.join(annotator_ckpts_path, "mediapipe", "face_landmarker.task")
 
-    # mp_face_mesh.FACEMESH_CONTOURS has all the items we care about.
-    face_connection_spec = {}
-    for edge in mp_face_mesh.FACEMESH_FACE_OVAL:
-        face_connection_spec[edge] = head_draw
-    for edge in mp_face_mesh.FACEMESH_LEFT_EYE:
-        face_connection_spec[edge] = left_eye_draw
-    for edge in mp_face_mesh.FACEMESH_LEFT_EYEBROW:
-        face_connection_spec[edge] = left_eyebrow_draw
-    # for edge in mp_face_mesh.FACEMESH_LEFT_IRIS:
-    #    face_connection_spec[edge] = left_iris_draw
-    for edge in mp_face_mesh.FACEMESH_RIGHT_EYE:
-        face_connection_spec[edge] = right_eye_draw
-    for edge in mp_face_mesh.FACEMESH_RIGHT_EYEBROW:
-        face_connection_spec[edge] = right_eyebrow_draw
-    # for edge in mp_face_mesh.FACEMESH_RIGHT_IRIS:
-    #    face_connection_spec[edge] = right_iris_draw
-    for edge in mp_face_mesh.FACEMESH_LIPS:
-        face_connection_spec[edge] = mouth_draw
-    iris_landmark_spec = {468: right_iris_draw, 473: left_iris_draw}
+
+def _ensure_face_landmarker_model() -> str:
+    """Return the absolute path to face_landmarker.task, raising if it is missing."""
+    model_path = os.path.abspath(_face_landmarker_model_path())
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"face_landmarker.task not found at {model_path}\n"
+            f"Download it from:\n"
+            f"  https://storage.googleapis.com/mediapipe-models/"
+            f"face_landmarker/face_landmarker/float16/1/face_landmarker.task\n"
+            f"and place it at:\n  {model_path}"
+        )
+    return model_path
+
+
+min_face_size_pixels: int = 64
+f_thick = 2
+f_rad = 1
+right_iris_draw = DrawingSpec(color=(10, 200, 250), thickness=f_thick, circle_radius=f_rad)
+right_eye_draw = DrawingSpec(color=(10, 200, 180), thickness=f_thick, circle_radius=f_rad)
+right_eyebrow_draw = DrawingSpec(color=(10, 220, 180), thickness=f_thick, circle_radius=f_rad)
+left_iris_draw = DrawingSpec(color=(250, 200, 10), thickness=f_thick, circle_radius=f_rad)
+left_eye_draw = DrawingSpec(color=(180, 200, 10), thickness=f_thick, circle_radius=f_rad)
+left_eyebrow_draw = DrawingSpec(color=(180, 220, 10), thickness=f_thick, circle_radius=f_rad)
+mouth_draw = DrawingSpec(color=(10, 180, 10), thickness=f_thick, circle_radius=f_rad)
+head_draw = DrawingSpec(color=(10, 200, 10), thickness=f_thick, circle_radius=f_rad)
+
+face_connection_spec: dict[tuple[int, int], DrawingSpec] = {}
+_face_connections: list = []
+for _conn in FaceLandmarksConnections.FACE_LANDMARKS_FACE_OVAL:
+    face_connection_spec[(_conn.start, _conn.end)] = head_draw
+    _face_connections.append(_conn)
+for _conn in FaceLandmarksConnections.FACE_LANDMARKS_LEFT_EYE:
+    face_connection_spec[(_conn.start, _conn.end)] = left_eye_draw
+    _face_connections.append(_conn)
+for _conn in FaceLandmarksConnections.FACE_LANDMARKS_LEFT_EYEBROW:
+    face_connection_spec[(_conn.start, _conn.end)] = left_eyebrow_draw
+    _face_connections.append(_conn)
+for _conn in FaceLandmarksConnections.FACE_LANDMARKS_RIGHT_EYE:
+    face_connection_spec[(_conn.start, _conn.end)] = right_eye_draw
+    _face_connections.append(_conn)
+for _conn in FaceLandmarksConnections.FACE_LANDMARKS_RIGHT_EYEBROW:
+    face_connection_spec[(_conn.start, _conn.end)] = right_eyebrow_draw
+    _face_connections.append(_conn)
+for _conn in FaceLandmarksConnections.FACE_LANDMARKS_LIPS:
+    face_connection_spec[(_conn.start, _conn.end)] = mouth_draw
+    _face_connections.append(_conn)
+
+iris_landmark_spec = {468: right_iris_draw, 473: left_iris_draw}
 
 
 def draw_pupils(image, landmark_list, drawing_spec, halfwidth: int = 2):
@@ -57,11 +78,10 @@ def draw_pupils(image, landmark_list, drawing_spec, halfwidth: int = 2):
     image_rows, image_cols, image_channels = image.shape
     if image_channels != 3:  # BGR channels
         raise ValueError('Input image must contain three channel bgr data.')
-    for idx, landmark in enumerate(landmark_list.landmark):
-        if (
-                (landmark.HasField('visibility') and landmark.visibility < 0.9) or
-                (landmark.HasField('presence') and landmark.presence < 0.5)
-        ):
+    for idx, landmark in enumerate(landmark_list):
+        if landmark.visibility is not None and landmark.visibility < 0.9:
+            continue
+        if landmark.presence is not None and landmark.presence < 0.5:
             continue
         if landmark.x >= 1.0 or landmark.x < 0 or landmark.y >= 1.0 or landmark.y < 0:
             continue
@@ -80,8 +100,6 @@ def draw_pupils(image, landmark_list, drawing_spec, halfwidth: int = 2):
 
 def reverse_channels(image):
     """Given a numpy array in RGB form, convert to BGR.  Will also convert from BGR to RGB."""
-    # im[:,:,::-1] is a neat hack to convert BGR to RGB by reversing the indexing order.
-    # im[:,:,::[2,1,0]] would also work but makes a copy of the data.
     return image[:, :, ::-1]
 
 
@@ -95,36 +113,42 @@ def generate_annotation(
     If min_face_size_pixels is provided and nonzero it will be used to filter faces that occupy less than this many
     pixels in the image.
     """
-    with mp_face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=max_faces,
-            refine_landmarks=True,
-            min_detection_confidence=min_confidence,
-    ) as facemesh:
+    model_path = _ensure_face_landmarker_model()
+    options = FaceLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=model_path),
+        running_mode=RunningMode.IMAGE,
+        num_faces=max_faces,
+        min_face_detection_confidence=min_confidence,
+        min_face_presence_confidence=min_confidence,
+        output_face_blendshapes=False,
+        output_facial_transformation_matrixes=False,
+    )
+
+    with FaceLandmarker.create_from_options(options) as landmarker:
         img_height, img_width, img_channels = img_rgb.shape
         assert(img_channels == 3)
 
-        results = facemesh.process(img_rgb).multi_face_landmarks
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
+        result = landmarker.detect(mp_image)
 
-        if results is None:
+        if not result.face_landmarks:
             print("No faces detected in controlnet image for Mediapipe face annotator.")
             return numpy.zeros_like(img_rgb)
 
         # Filter faces that are too small
         filtered_landmarks = []
-        for lm in results:
-            landmarks = lm.landmark
+        for lm in result.face_landmarks:
             face_rect = [
-                landmarks[0].x,
-                landmarks[0].y,
-                landmarks[0].x,
-                landmarks[0].y,
+                lm[0].x,
+                lm[0].y,
+                lm[0].x,
+                lm[0].y,
             ]  # Left, up, right, down.
-            for i in range(len(landmarks)):
-                face_rect[0] = min(face_rect[0], landmarks[i].x)
-                face_rect[1] = min(face_rect[1], landmarks[i].y)
-                face_rect[2] = max(face_rect[2], landmarks[i].x)
-                face_rect[3] = max(face_rect[3], landmarks[i].y)
+            for i in range(len(lm)):
+                face_rect[0] = min(face_rect[0], lm[i].x)
+                face_rect[1] = min(face_rect[1], lm[i].y)
+                face_rect[2] = max(face_rect[2], lm[i].x)
+                face_rect[3] = max(face_rect[3], lm[i].y)
             if min_face_size_pixels > 0:
                 face_width = abs(face_rect[2] - face_rect[0])
                 face_height = abs(face_rect[3] - face_rect[1])
@@ -141,12 +165,13 @@ def generate_annotation(
 
         # Draw detected faces:
         for face_landmarks in filtered_landmarks:
-            mp_drawing.draw_landmarks(
+            drawing_utils.draw_landmarks(
                 empty,
                 face_landmarks,
-                connections=face_connection_spec.keys(),
+                connections=_face_connections,
                 landmark_drawing_spec=None,
-                connection_drawing_spec=face_connection_spec
+                connection_drawing_spec=face_connection_spec,
+                is_drawing_landmarks=False,
             )
             draw_pupils(empty, face_landmarks, iris_landmark_spec, 2)
 
